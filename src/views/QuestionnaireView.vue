@@ -83,6 +83,103 @@ function speakBotResponse(text) {
   window.speechSynthesis.speak(utterance);
 }
 
+// --- NEW: Function to format bot messages with LaTeX-like styling ---
+function formatBotMessage(text) {
+  if (!text) return '';
+  
+  // Split text into lines for better processing
+  let lines = text.split('\n');
+  let formatted = '';
+  let inList = false;
+  let listItems = [];
+  
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i].trim();
+    
+    if (!line) {
+      // Empty line - close any open list and add spacing
+      if (inList) {
+        formatted += formatList(listItems);
+        listItems = [];
+        inList = false;
+      }
+      formatted += '<div class="spacing"></div>';
+      continue;
+    }
+    
+    // Check for headers
+    if (line.startsWith('###')) {
+      if (inList) {
+        formatted += formatList(listItems);
+        listItems = [];
+        inList = false;
+      }
+      formatted += `<h3>${line.replace(/^###\s*/, '')}</h3>`;
+    } else if (line.startsWith('##')) {
+      if (inList) {
+        formatted += formatList(listItems);
+        listItems = [];
+        inList = false;
+      }
+      formatted += `<h2>${line.replace(/^##\s*/, '')}</h2>`;
+    } else if (line.startsWith('#')) {
+      if (inList) {
+        formatted += formatList(listItems);
+        listItems = [];
+        inList = false;
+      }
+      formatted += `<h1>${line.replace(/^#\s*/, '')}</h1>`;
+    }
+    // Check for bullet points (various formats)
+    else if (line.match(/^[-•*]\s+/) || line.match(/^\d+\.\s+/)) {
+      let content = line.replace(/^[-•*]\s+/, '').replace(/^\d+\.\s+/, '');
+      listItems.push(content);
+      inList = true;
+    }
+    // Regular paragraph
+    else {
+      if (inList) {
+        formatted += formatList(listItems);
+        listItems = [];
+        inList = false;
+      }
+      formatted += `<p>${formatInlineElements(line)}</p>`;
+    }
+  }
+  
+  // Close any remaining list
+  if (inList) {
+    formatted += formatList(listItems);
+  }
+  
+  return formatted;
+}
+
+// Helper function to format lists
+function formatList(items) {
+  if (items.length === 0) return '';
+  
+  let listHtml = '<ul class="formatted-list">';
+  items.forEach(item => {
+    listHtml += `<li>${formatInlineElements(item)}</li>`;
+  });
+  listHtml += '</ul>';
+  return listHtml;
+}
+
+// Helper function to format inline elements (bold, italic, code)
+function formatInlineElements(text) {
+  return text
+    // Convert **bold** to <strong>
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    // Convert *italic* to <em>
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    // Convert `code` to <code>
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    // Convert ```code blocks``` (though these should be handled at block level)
+    .replace(/```(.*?)```/gs, '<pre><code>$1</code></pre>');
+}
+
 // --- NEW: Function to start/stop listening to the user ---
 function toggleListen() {
   if (isListening.value) {
@@ -141,52 +238,33 @@ async function sendMessage() {
   await nextTick();
   if (chatWindow.value) chatWindow.value.scrollTop = chatWindow.value.scrollHeight;
 
-  // IMPORTANT SECURITY NOTE: See below
-  const url = 'https://us-central1-aiplatform.googleapis.com/v1/projects/driven-edition-467110-p6/locations/us-central1/reasoningEngines/8728635784820686848:streamQuery?alt=sse';
-  const bearerToken = 'ya29.a0AS3H6NzYPIQgI3Pv5GIJsdbBPJJa-e8gaU4pZiY1on_eVtTghDW6fspUKi5QXdDQPZ3qwD_yI_lXwV2Og1c64hjByN_uhFf20JsAX1-zixluLdjROLSXLbvOHcEdXCwkphywkc6tUJaaRPXoYZ6rL57NA65PnIPBPDrwRDfZA1qBdQaCgYKAVcSARMSFQHGX2Mi5gUSfEZ1ogC3emwxY-46zg0181';
+  // Call your AI agent server on port 8000
+  const url = 'http://localhost:8000/chat';
 
   try {
     const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${bearerToken}`
+        'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ input: { message: userMessage, user_id: 'hackathon_user' }})
+      body: JSON.stringify({ message: userMessage, user_id: 'hackathon_user' })
     });
 
-    if (!response.ok || !response.body) throw new Error(`HTTP error! status: ${response.status}`);
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
     
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let botMsg = '';
-    let botMsgIndex = -1;
+    const data = await response.json();
+    const botResponse = data.response || data.message || 'Sorry, I could not process your request.';
+    
+    // Add the bot's response
+    messages.value.push({ role: 'bot', text: botResponse });
+    
+    // Speak the response (without HTML formatting)
+    const plainTextResponse = botResponse.replace(/<[^>]*>/g, '');
+    speakBotResponse(plainTextResponse);
 
-    // Add a placeholder for the bot's message
-    messages.value.push({ role: 'bot', text: '...' });
-    botMsgIndex = messages.value.length - 1;
-
-    // Stream the response
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      const chunk = decoder.decode(value);
-      // Clean up SSE data format which might look like "data: {...}"
-      const cleanedChunk = chunk.replace(/^data: /, '').trim();
-      if(cleanedChunk) botMsg += cleanedChunk;
-
-      messages.value[botMsgIndex].text = botMsg + '...';
-
-      // Auto-scroll as message comes in
-      await nextTick();
-      if(chatWindow.value) chatWindow.value.scrollTop = chatWindow.value.scrollHeight;
-    }
-
-    // Finalize the bot message
-    messages.value[botMsgIndex].text = botMsg;
-    // --- NEW: Speak the final response ---
-    speakBotResponse(botMsg);
+    // Auto-scroll to bottom
+    await nextTick();
+    if (chatWindow.value) chatWindow.value.scrollTop = chatWindow.value.scrollHeight;
 
   } catch (err) {
     const errorText = 'Sorry, I encountered an error. Please try again.';
@@ -236,6 +314,119 @@ async function sendMessage() {
 .bot .message-bubble {
   background-color: #ffffff; /* White for bot */
   border: 1px solid #e0e0e0;
+}
+
+/* Bot message formatting - LaTeX-like styling */
+.bot-message {
+  line-height: 1.7;
+  font-family: 'Times New Roman', serif;
+  font-size: 15px;
+  color: #2c3e50;
+  text-align: justify;
+}
+
+.bot-message h1, .bot-message h2, .bot-message h3 {
+  margin: 20px 0 12px 0;
+  font-weight: 700;
+  color: #1565c0;
+  font-family: 'Arial', sans-serif;
+}
+
+.bot-message h1 { 
+  font-size: 1.6em; 
+  border-bottom: 2px solid #1565c0;
+  padding-bottom: 5px;
+}
+.bot-message h2 { 
+  font-size: 1.4em; 
+  border-bottom: 1px solid #1976d2;
+  padding-bottom: 3px;
+}
+.bot-message h3 { 
+  font-size: 1.2em; 
+  color: #1976d2;
+}
+
+.bot-message p {
+  margin: 12px 0;
+  text-indent: 0;
+  line-height: 1.8;
+}
+
+.bot-message .spacing {
+  height: 16px;
+}
+
+.bot-message .formatted-list {
+  margin: 16px 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.bot-message .formatted-list li {
+  margin: 8px 0;
+  padding-left: 25px;
+  position: relative;
+  line-height: 1.7;
+  text-align: justify;
+}
+
+.bot-message .formatted-list li::before {
+  content: "•";
+  color: #1565c0;
+  font-weight: bold;
+  font-size: 1.2em;
+  position: absolute;
+  left: 8px;
+  top: -2px;
+}
+
+.bot-message strong {
+  font-weight: 700;
+  color: #0d47a1;
+  font-family: 'Arial', sans-serif;
+}
+
+.bot-message em {
+  font-style: italic;
+  color: #424242;
+  font-family: 'Times New Roman', serif;
+}
+
+.bot-message code {
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 0.9em;
+  color: #e83e8c;
+}
+
+.bot-message pre {
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 16px 0;
+  overflow-x: auto;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.bot-message pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  display: block;
+  white-space: pre;
+  color: #495057;
+  font-size: 0.9em;
+}
+
+.user-message {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.6;
+  font-size: 14px;
 }
 
 /* --- NEW: Blinking animation for the microphone icon --- */
