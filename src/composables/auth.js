@@ -6,7 +6,7 @@ import { ref, readonly } from 'vue'
 const user = ref(null)
 
 async function register({ name, email, phone, password }) {
-  const response = await fetch('http://127.0.0.1:9000/api/register', { // <-- use your backend port
+  const response = await fetch('http://localhost:5000/api/register', { // Flask app on port 5000
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, email, phone, password })
@@ -20,8 +20,8 @@ async function register({ name, email, phone, password }) {
 }
 
 async function login({ phone, password }) {
-  // Use the correct backend URL
-  const response = await fetch('http://localhost:9000/api/login', { // <-- update this URL
+  // Use the Flask app on port 5000
+  const response = await fetch('http://localhost:5000/api/login', { // Flask app on port 5000
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ phone, password })

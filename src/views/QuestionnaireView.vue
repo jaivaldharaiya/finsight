@@ -14,7 +14,10 @@
               <div v-for="(msg, idx) in messages" :key="idx" :class="`message-row ${msg.role}`">
                 <v-icon v-if="msg.role === 'bot'" class="mr-2" color="primary">mdi-robot-happy</v-icon>
                 <div class="message-bubble pa-3">
-                  <span>{{ msg.text }}</span>
+                  <div v-if="msg.role === 'user'" class="user-message">
+                    {{ msg.text }}
+                  </div>
+                  <div v-else class="bot-message" v-html="formatBotMessage(msg.text)"></div>
                 </div>
                 <v-icon v-if="msg.role === 'user'" class="ml-2" color="accent">mdi-account</v-icon>
               </div>

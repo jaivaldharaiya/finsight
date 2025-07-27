@@ -138,52 +138,32 @@ async function sendMessage() {
   await nextTick();
   if (chatWindow.value) chatWindow.value.scrollTop = chatWindow.value.scrollHeight;
 
-  // IMPORTANT SECURITY NOTE: See below
-  const url = 'https://us-central1-aiplatform.googleapis.com/v1/projects/driven-edition-467110-p6/locations/us-central1/reasoningEngines/8728635784820686848:streamQuery?alt=sse';
-  const bearerToken = 'ya29.a0AS3H6NzpMKwS_J-8oPBFTsZtnaHJYoW80YE7yRgjy-3WjpxxziNOjJnbPdMdXpbLeqI5KFC_McM0z4KLY6SdK6PSHOOQfSyIh2MBuPcP8MUDY_qKJL4OjCKIenGLmhg17WnvMvSfEs3xzzp3W6_aUkYyKpzzpCM4_qbum_6fOjJfDw8aCgYKAUsSARMSFQHGX2MiLzNZBKlULDcPJju5uVly5w0182';
+  // Call the AI agent server on port 8000
+  const url = 'http://localhost:8000/chat';
 
   try {
     const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${bearerToken}`
+        'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ input: { message: userMessage, user_id: 'hackathon_user' }})
+      body: JSON.stringify({ message: userMessage, user_id: 'hackathon_user' })
     });
 
-    if (!response.ok || !response.body) throw new Error(`HTTP error! status: ${response.status}`);
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
     
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let botMsg = '';
-    let botMsgIndex = -1;
+    const data = await response.json();
+    const botResponse = data.response || 'Sorry, I could not process your request.';
+    
+    // Add the bot's response
+    messages.value.push({ role: 'bot', text: botResponse });
+    
+    // Speak the response
+    speakBotResponse(botResponse);
 
-    // Add a placeholder for the bot's message
-    messages.value.push({ role: 'bot', text: '...' });
-    botMsgIndex = messages.value.length - 1;
-
-    // Stream the response
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      const chunk = decoder.decode(value);
-      // Clean up SSE data format which might look like "data: {...}"
-      const cleanedChunk = chunk.replace(/^data: /, '').trim();
-      if(cleanedChunk) botMsg += cleanedChunk;
-
-      messages.value[botMsgIndex].text = botMsg + '...';
-
-      // Auto-scroll as message comes in
-      await nextTick();
-      if(chatWindow.value) chatWindow.value.scrollTop = chatWindow.value.scrollHeight;
-    }
-
-    // Finalize the bot message
-    messages.value[botMsgIndex].text = botMsg;
-    // --- NEW: Speak the final response ---
-    speakBotResponse(botMsg);
+    // Auto-scroll to bottom
+    await nextTick();
+    if (chatWindow.value) chatWindow.value.scrollTop = chatWindow.value.scrollHeight;
 
   } catch (err) {
     const errorText = 'Sorry, I encountered an error. Please try again.';
